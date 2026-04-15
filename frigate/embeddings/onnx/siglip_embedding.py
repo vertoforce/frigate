@@ -16,7 +16,10 @@ import logging
 import os
 import threading
 import warnings
+from typing import Any
 
+import numpy as np
+from PIL import Image
 from transformers import AutoImageProcessor, AutoTokenizer
 from transformers.utils.logging import disable_progress_bar
 
@@ -53,7 +56,42 @@ def _hf_endpoint() -> str:
     return os.environ.get("HF_ENDPOINT", "https://huggingface.co")
 
 
-class SigLIPTextEmbedding(BaseEmbedding):
+class _SigLIPCallMixin:
+    """Shared __call__ override.
+
+    BaseEmbedding picks `runner.run(...)[0]` — the first ONNX output. SigLIP's
+    encoder ONNX exports two outputs per pass: `last_hidden_state` (per-token,
+    [0]) and `pooler_output` (pooled vector, [1]). We want the latter.
+    """
+
+    def __call__(
+        self, inputs: list[str] | list[Image.Image] | list[bytes]
+    ) -> list[np.ndarray]:
+        self._load_model_and_utils()
+        processed = self._preprocess_inputs(inputs)
+        input_names = self.runner.get_input_names()
+        onnx_inputs: dict[str, Any] = {name: [] for name in input_names}
+        for item in processed:
+            for key, value in item.items():
+                if key in input_names:
+                    onnx_inputs[key].append(value[0])
+
+        for key in input_names:
+            if onnx_inputs.get(key) is None or (
+                hasattr(onnx_inputs[key], "__len__") and len(onnx_inputs[key]) == 0
+            ):
+                logger.warning(f"Expected input '{key}' not found in onnx_inputs")
+            else:
+                onnx_inputs[key] = np.stack(onnx_inputs[key])
+
+        outputs = self.runner.run(onnx_inputs)
+        # [1] = pooler_output (batch, 1024); [0] is last_hidden_state.
+        pooled = outputs[1]
+        embeddings = self._postprocess_outputs(pooled)
+        return [embedding for embedding in embeddings]
+
+
+class SigLIPTextEmbedding(_SigLIPCallMixin, BaseEmbedding):
     def __init__(
         self,
         model_size: str,
@@ -179,7 +217,7 @@ class SigLIPTextEmbedding(BaseEmbedding):
         return outputs
 
 
-class SigLIPImageEmbedding(BaseEmbedding):
+class SigLIPImageEmbedding(_SigLIPCallMixin, BaseEmbedding):
     def __init__(
         self,
         model_size: str,
