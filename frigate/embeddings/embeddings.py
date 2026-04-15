@@ -32,6 +32,7 @@ from frigate.util.file import get_event_thumbnail_bytes
 from .genai_embedding import GenAIEmbedding
 from .onnx.jina_v1_embedding import JinaV1ImageEmbedding, JinaV1TextEmbedding
 from .onnx.jina_v2_embedding import JinaV2Embedding
+from .onnx.siglip_embedding import SigLIPImageEmbedding, SigLIPTextEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,20 @@ class Embeddings:
             self.vision_embedding = lambda input_data: self.embedding(
                 input_data, embedding_type="vision"
             )
+        elif model_cfg == SemanticSearchModelEnum.siglip:
+            # SigLIP split-encoder (matches jina_v1 pattern: separate text and
+            # vision ONNX graphs). Output truncated to 768 dims for DB compat.
+            self.text_embedding = SigLIPTextEmbedding(
+                model_size=config.semantic_search.model_size,
+                requestor=self.requestor,
+                device="CPU",
+            )
+            self.vision_embedding = SigLIPImageEmbedding(
+                model_size=config.semantic_search.model_size,
+                requestor=self.requestor,
+                device=config.semantic_search.device
+                or ("GPU" if config.semantic_search.model_size == "large" else "CPU"),
+            )
         else:
             # Default to jinav1
             self.text_embedding = JinaV1TextEmbedding(
@@ -171,6 +186,13 @@ class Embeddings:
                 if self.config.semantic_search.model_size == "large"
                 else "jinaai/jina-clip-v2-model_quantized.onnx",
                 "jinaai/jina-clip-v2-preprocessor_config.json",
+            ]
+        elif model_cfg == SemanticSearchModelEnum.siglip:
+            models = [
+                "onnx-community/siglip2-large-patch16-384-ONNX-text_model_fp16.onnx",
+                "onnx-community/siglip2-large-patch16-384-ONNX-tokenizer",
+                "onnx-community/siglip2-large-patch16-384-ONNX-vision_model_fp16.onnx",
+                "onnx-community/siglip2-large-patch16-384-ONNX-preprocessor_config.json",
             ]
         else:  # Default to jinav1
             models = [
@@ -338,6 +360,10 @@ class Embeddings:
             batch_size = 1
         elif self.config.semantic_search.model == SemanticSearchModelEnum.jinav2:
             batch_size = 4
+        elif self.config.semantic_search.model == SemanticSearchModelEnum.siglip:
+            # SigLIP large vision is ~630 MB, fp16, 384x384 input — fits well
+            # in a 12-sample batch on a 4 GB GPU alongside other Frigate load.
+            batch_size = 12
         else:
             batch_size = 32
         current_page = 1

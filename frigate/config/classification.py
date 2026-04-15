@@ -18,6 +18,7 @@ __all__ = [
 class SemanticSearchModelEnum(str, Enum):
     jinav1 = "jinav1"
     jinav2 = "jinav2"
+    siglip = "siglip"
 
 
 class EnrichmentsDeviceEnum(str, Enum):

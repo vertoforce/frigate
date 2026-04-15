@@ -41,7 +41,10 @@ def get_ort_session_options(model_type: str | None = None) -> ort.SessionOptions
         # below EXTENDED the CUDA EP returns an identical vector for every image,
         # and ORT_ENABLE_ALL fails to build on CPU with a SimplifiedLayerNormFusion error
         level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-    elif model_type == EnrichmentModelTypeEnum.jina_v1.value:
+    elif model_type in (
+        EnrichmentModelTypeEnum.jina_v1.value,
+        EnrichmentModelTypeEnum.siglip.value,
+    ):
         # aggressive optimizations create or expect nodes that don't exist
         level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
     else:
@@ -130,6 +133,7 @@ class ONNXModelRunner(BaseModelRunner):
         return model_type in [
             EnrichmentModelTypeEnum.paddleocr.value,
             EnrichmentModelTypeEnum.jina_v2.value,
+            EnrichmentModelTypeEnum.siglip.value,
             ModelTypeEnum.rfdetr.value,
             ModelTypeEnum.dfine.value,
         ]
@@ -196,6 +200,7 @@ class CudaGraphRunner(BaseModelRunner):
             EnrichmentModelTypeEnum.paddleocr.value,
             EnrichmentModelTypeEnum.jina_v1.value,
             EnrichmentModelTypeEnum.jina_v2.value,
+            EnrichmentModelTypeEnum.siglip.value,
             EnrichmentModelTypeEnum.yolov9_license_plate.value,
         ]
 
@@ -273,6 +278,7 @@ class OpenVINOModelRunner(BaseModelRunner):
         return model_type in [
             EnrichmentModelTypeEnum.paddleocr.value,
             EnrichmentModelTypeEnum.jina_v2.value,
+            EnrichmentModelTypeEnum.siglip.value,
         ]
 
     @staticmethod
@@ -284,6 +290,7 @@ class OpenVINOModelRunner(BaseModelRunner):
             EnrichmentModelTypeEnum.paddleocr.value,
             EnrichmentModelTypeEnum.jina_v1.value,
             EnrichmentModelTypeEnum.jina_v2.value,
+            EnrichmentModelTypeEnum.siglip.value,
             EnrichmentModelTypeEnum.arcface.value,
         ]
 
