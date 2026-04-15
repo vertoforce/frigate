@@ -326,16 +326,20 @@ export default function Explore() {
   const { payload: textModelState } = useModelState(
     modelVersion === "jinav1"
       ? "jinaai/jina-clip-v1-text_model_fp16.onnx"
-      : modelSize === "large"
-        ? "jinaai/jina-clip-v2-model_fp16.onnx"
-        : "jinaai/jina-clip-v2-model_quantized.onnx",
+      : modelVersion === "siglip"
+        ? "onnx-community/siglip2-large-patch16-384-ONNX-text_model_fp16.onnx"
+        : modelSize === "large"
+          ? "jinaai/jina-clip-v2-model_fp16.onnx"
+          : "jinaai/jina-clip-v2-model_quantized.onnx",
   );
 
   // Tokenizer state
   const { payload: textTokenizerState } = useModelState(
     modelVersion === "jinav1"
       ? "jinaai/jina-clip-v1-tokenizer"
-      : "jinaai/jina-clip-v2-tokenizer",
+      : modelVersion === "siglip"
+        ? "onnx-community/siglip2-large-patch16-384-ONNX-tokenizer"
+        : "jinaai/jina-clip-v2-tokenizer",
   );
 
   // Vision model state (same as text model for jinav2)
@@ -344,16 +348,20 @@ export default function Explore() {
       ? modelSize === "large"
         ? "jinaai/jina-clip-v1-vision_model_fp16.onnx"
         : "jinaai/jina-clip-v1-vision_model_quantized.onnx"
-      : modelSize === "large"
-        ? "jinaai/jina-clip-v2-model_fp16.onnx"
-        : "jinaai/jina-clip-v2-model_quantized.onnx";
+      : modelVersion === "siglip"
+        ? "onnx-community/siglip2-large-patch16-384-ONNX-vision_model_fp16.onnx"
+        : modelSize === "large"
+          ? "jinaai/jina-clip-v2-model_fp16.onnx"
+          : "jinaai/jina-clip-v2-model_quantized.onnx";
   const { payload: visionModelState } = useModelState(visionModelFile);
 
   // Preprocessor/feature extractor state
   const { payload: visionFeatureExtractorState } = useModelState(
     modelVersion === "jinav1"
       ? "jinaai/jina-clip-v1-preprocessor_config.json"
-      : "jinaai/jina-clip-v2-preprocessor_config.json",
+      : modelVersion === "siglip"
+        ? "onnx-community/siglip2-large-patch16-384-ONNX-preprocessor_config.json"
+        : "jinaai/jina-clip-v2-preprocessor_config.json",
   );
 
   const allModelsLoaded = useMemo(() => {
