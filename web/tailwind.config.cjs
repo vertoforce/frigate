@@ -52,7 +52,11 @@ module.exports = {
         "cursor-blink": "cursor-blink 1s step-end infinite",
       },
       aspectRatio: {
-        wide: "32 / 9",
+        // Tightened from upstream's 32/9 to match our back-wide cropped feed
+        // (4096x1552 = 2.64:1). The dashboard buckets any camera with detect
+        // aspect > 2 into aspect-wide; with our crop that's a near-perfect fit
+        // instead of a 32:9 letterbox.
+        wide: "4096 / 1552",
         tall: "8 / 9",
       },
       backgroundImage: {
