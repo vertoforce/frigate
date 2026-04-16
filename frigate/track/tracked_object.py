@@ -30,6 +30,14 @@ from frigate.util.velocity import calculate_real_world_speed
 logger = logging.getLogger(__name__)
 
 
+# Local patch: upstream crops event thumbnails at multiplier=1.1, which is
+# essentially the raw bbox and is unreadable at 4K camera resolutions. 1.5
+# keeps ~50% more context on each side; calculate_region clamps to the frame
+# edges so larger values are safe. Candidate for an upstream PR as a
+# configurable option.
+THUMBNAIL_CROP_MULTIPLIER = 1.5
+
+
 # In most cases objects that loiter in a loitering zone should alert,
 # but can still be expected to stay stationary for extended periods of time
 # (ex: car loitering on the street vs when a known person parks on the street)
@@ -501,6 +509,7 @@ class TrackedObject:
             timestamp=timestamp,
             bounding_box=bounding_box,
             crop=crop,
+            crop_multiplier=THUMBNAIL_CROP_MULTIPLIER,
             height=height,
             quality=quality,
             label=self.obj_data["label"],
