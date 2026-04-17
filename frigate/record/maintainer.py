@@ -332,6 +332,43 @@ class RecordingMaintainer(threading.Thread):
         Path(cache_path).unlink(missing_ok=True)
         self.end_time_cache.pop(cache_path, None)
 
+    def log_discarded_segment(
+        self,
+        camera: str,
+        cache_path: str,
+        store_mode: Any,
+        segment_info: "SegmentInfo | None",
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+    ) -> None:
+        """Local diagnostic patch: log every silent drop so we can correlate
+        with the reviewsegment timeline and see why the maintainer discarded an
+        in-detection-window segment. The in-memory queue values that drove the
+        decision are otherwise gone. Remove once root-caused."""
+        if segment_info is None:
+            logger.debug(
+                "Dropping %s segment %s mode=%s (no segment stats) window=%s..%s",
+                camera,
+                cache_path,
+                store_mode,
+                start_time.isoformat(),
+                end_time.isoformat(),
+            )
+            return
+
+        logger.debug(
+            "Dropping %s segment %s mode=%s motion_count=%d active_count=%d region_count=%d dBFS=%d window=%s..%s",
+            camera,
+            cache_path,
+            store_mode,
+            segment_info.motion_count,
+            segment_info.active_object_count,
+            segment_info.region_count,
+            segment_info.average_dBFS,
+            start_time.isoformat(),
+            end_time.isoformat(),
+        )
+
     async def validate_and_move_segment(
         self, camera: str, reviews: Any, recording: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -479,6 +516,14 @@ class RecordingMaintainer(threading.Thread):
                     segment_stats,
                 )
             else:
+                self.log_discarded_segment(
+                    camera,
+                    cache_path,
+                    record_mode,
+                    segment_stats,
+                    start_time,
+                    end_time,
+                )
                 self.drop_segment(cache_path)
                 return None
 
@@ -493,6 +538,14 @@ class RecordingMaintainer(threading.Thread):
             ).astimezone(datetime.UTC)
 
             if end_time < retain_cutoff:
+                self.log_discarded_segment(
+                    camera,
+                    cache_path,
+                    "no-review",
+                    segment_stats,
+                    start_time,
+                    end_time,
+                )
                 self.drop_segment(cache_path)
 
         return None
