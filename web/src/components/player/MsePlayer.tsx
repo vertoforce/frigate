@@ -52,6 +52,7 @@ function MSEPlayer({
     "avc1.64002A", // H.264 high 4.2 (Chromecast 3rd Gen)
     "avc1.640033", // H.264 high 5.1 (Chromecast with Google TV)
     "hvc1.1.6.L153.B0", // H.265 main 5.1 (Chromecast Ultra)
+    "av01.0.04M.08", // AV1 main 4.0 8-bit (Chrome, Firefox, Safari 17+)
     "mp4a.40.2", // AAC LC
     "mp4a.40.5", // AAC HE
     "flac", // FLAC (PCM compatible)
