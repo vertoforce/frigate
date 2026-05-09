@@ -90,6 +90,36 @@ target "tensorrt" {
   }
   target = "frigate-tensorrt"
   inherits = ["_build_args"]
+  # NOTE: cache_to=type=local needs a docker-container buildx driver; the
+  # default `docker` driver rejects it. Cache config will be re-enabled once
+  # we provision a `docker buildx create --driver docker-container` builder.
+}
+
+# Cache anchor: pre-warm the heavy stages explicitly. Run `make deps-cache`
+# after requirements*.txt or build scripts change. Subsequent main builds
+# pick up the cache automatically via the cache-from above.
+target "deps-cache" {
+  dockerfile = "docker/main/Dockerfile"
+  target = "deps"
+  inherits = ["_build_args"]
+  tags = ["frigate-cache:deps"]
+  output = ["type=docker"]
+}
+
+target "trt-wheels-cache" {
+  dockerfile = "docker/tensorrt/Dockerfile.${ARCH}"
+  context = "."
+  contexts = {
+    wheels = "target:wheels"
+  }
+  target = "trt-wheels"
+  inherits = ["_build_args"]
+  tags = ["frigate-cache:trt-wheels"]
+  output = ["type=docker"]
+}
+
+group "deps-cache-all" {
+  targets = ["deps-cache", "trt-wheels-cache"]
 }
 
 target "devcontainer-trt" {
