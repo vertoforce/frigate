@@ -152,10 +152,15 @@ export default function LiveCameraView({
 
   // supported features
 
+  // 2026-05-09: prefer the "Mobile" live stream on mobile devices when one is
+  // configured (HEVC/H.264 sibling to the default AV1 stream — works around
+  // iOS Safari MSE AV1 quirks). Persisted choice still wins if the user
+  // explicitly picks a stream from the dropdown.
   const [streamName, setStreamName, streamNameLoaded] =
     useUserPersistence<string>(
       `${camera.name}-stream`,
-      Object.values(camera.live.streams)[0],
+      (isMobile && camera.live.streams?.Mobile) ||
+        Object.values(camera.live.streams)[0],
     );
 
   const isRestreamed = useMemo(
@@ -759,7 +764,7 @@ export default function LiveCameraView({
                 )}
                 <LivePlayer
                   key={camera.name}
-                  className={`${fullscreen ? "*:rounded-none" : ""}`}
+                  className={`size-full ${fullscreen ? "*:rounded-none" : ""}`}
                   windowVisible
                   showStillWithoutActivity={false}
                   alwaysShowCameraName={false}

@@ -267,10 +267,10 @@ function MSEPlayer({
 
     // Create a fresh MediaSource for this connection to avoid stale sourceopen events
     // from previous connections interfering with this one
-    const MediaSourceConstructor =
-      "ManagedMediaSource" in window ? window.ManagedMediaSource : MediaSource;
-    // @ts-expect-error for typing
-    msRef.current = new MediaSourceConstructor();
+    const MediaSourceCtor =
+      // @ts-expect-error - ManagedMediaSource is iOS 17.1+ Safari only
+      window.ManagedMediaSource || window.MediaSource;
+    msRef.current = new MediaSourceCtor() as MediaSource;
 
     onMse();
     // onMse is defined below and stable
@@ -372,18 +372,19 @@ function MSEPlayer({
   };
 
   const onMse = () => {
+    const supportsType =
+      // @ts-expect-error - ManagedMediaSource is iOS 17.1+ Safari only
+      window.ManagedMediaSource?.isTypeSupported || MediaSource.isTypeSupported;
+
     if ("ManagedMediaSource" in window) {
       // safari
-      const MediaSource = window.ManagedMediaSource;
-
       msRef.current?.addEventListener(
         "sourceopen",
         () => {
           sendWithTimeout(
             {
               type: "mse",
-              // @ts-expect-error for typing
-              value: codecs(MediaSource.isTypeSupported),
+              value: codecs(supportsType),
             },
             (fallbackTimeout ?? 3) * 1000,
           ).catch(() => {
@@ -413,7 +414,7 @@ function MSEPlayer({
           sendWithTimeout(
             {
               type: "mse",
-              value: codecs(MediaSource.isTypeSupported),
+              value: codecs(supportsType),
             },
             (fallbackTimeout ?? 3) * 1000,
           ).catch(() => {
@@ -807,6 +808,7 @@ function MSEPlayer({
     <video
       ref={videoRef}
       className={className}
+      style={{ objectFit: "contain" }}
       playsInline
       preload="auto"
       onLoadedData={() => {

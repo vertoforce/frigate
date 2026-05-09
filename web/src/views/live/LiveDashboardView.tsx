@@ -264,7 +264,9 @@ export default function LiveDashboardView({
 
       const streamName = streamExists
         ? streamNameFromSettings
-        : Object.values(availableStreams)[0] || "";
+        : (isMobile && availableStreams.Mobile) ||
+          Object.values(availableStreams)[0] ||
+          "";
 
       streams[camera.name] = streamName;
     });
@@ -533,8 +535,11 @@ export default function LiveDashboardView({
                     grow = "aspect-video";
                   }
                   const availableStreams = camera.live.streams || {};
+                  // 2026-05-09: prefer Mobile stream on mobile devices.
                   const firstStreamEntry =
-                    Object.values(availableStreams)[0] || "";
+                    (isMobile && availableStreams.Mobile) ||
+                    Object.values(availableStreams)[0] ||
+                    "";
 
                   const streamNameFromSettings =
                     currentGroupStreamingSettings?.[camera.name]?.streamName ||
