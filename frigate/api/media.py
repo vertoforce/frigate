@@ -499,14 +499,17 @@ async def recording_clip(
             Recordings.end_time,
         )
         .where(
-            # Overlap test rewritten from the upstream 3-way OR (start between
-            # OR end between OR spans-window) — logically identical, but the
-            # OR form defeats index seeks and scans the camera's full history
-            # (measured 173ms vs 1.2ms on a 105k-row camera). Requires the
-            # supplemental recordings(camera, end_time) index (see README).
-            (Recordings.end_time >= start_ts) & (Recordings.start_time <= end_ts)
+            # Same bounded overlap test PR #23862 gave vod_ts. The 3-way OR it
+            # replaces cannot be seeked, so SQLite scanned the camera's whole
+            # history (measured 173 ms against 1.2 ms on a 105k-row camera).
+            # A segment is never longer than MAX_SEGMENT_DURATION, so the
+            # start_time lower bound cannot drop an overlapping row, and it is
+            # what lets the (camera, start_time) index do the seek.
+            Recordings.camera == camera_name,
+            Recordings.start_time >= start_ts - MAX_SEGMENT_DURATION,
+            Recordings.start_time <= end_ts,
+            Recordings.end_time >= start_ts,
         )
-        .where(Recordings.camera == camera_name)
         .order_by(Recordings.start_time.asc())
     )
 
