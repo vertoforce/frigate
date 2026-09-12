@@ -291,6 +291,10 @@ def process_frames(
 
         # look for motion if enabled
         motion_boxes = motion_detector.detect(frame)
+        # REC-01 forensics: surface the frame-to-frame delta in /api/stats
+        camera_metrics.frame_delta.value = getattr(
+            motion_detector, "frame_delta", -1.0
+        )
 
         regions = []
         consolidated_detections = []

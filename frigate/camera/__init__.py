@@ -14,6 +14,7 @@ class CameraMetrics:
     read_start: ValueProxy[float]
     audio_rms: ValueProxy[float]
     audio_dBFS: ValueProxy[float]
+    frame_delta: ValueProxy[float]
 
     frame_queue: queue.Queue
 
@@ -32,6 +33,9 @@ class CameraMetrics:
         self.read_start = manager.Value("d", 0)
         self.audio_rms = manager.Value("d", 0)
         self.audio_dBFS = manager.Value("d", 0)
+        # REC-01 forensics: mean abs diff between consecutive motion
+        # frames. -1.0 means not yet computed.
+        self.frame_delta = manager.Value("d", -1.0)
 
         self.frame_queue = manager.Queue(maxsize=2)
 

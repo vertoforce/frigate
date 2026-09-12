@@ -405,6 +405,8 @@ def stats_snapshot(
             "ffmpeg_pid": ffmpeg_pid,
             "audio_rms": round(camera_stats.audio_rms.value, 4),
             "audio_dBFS": round(camera_stats.audio_dBFS.value, 4),
+            # REC-01 forensics: 0.0 with healthy camera_fps means a repeating picture
+            "frame_delta": round(camera_stats.frame_delta.value, 3),
             **connection_quality,
         }
 

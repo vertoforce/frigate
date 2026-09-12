@@ -46,6 +46,9 @@ class ImprovedMotionDetector(MotionDetector):
         self.contrast_values_index = 0
         self.ptz_metrics = ptz_metrics
         self.last_stop_time: float | None = None
+        # REC-01 forensics
+        self.prev_frame: np.ndarray | None = None
+        self.frame_delta = -1.0
 
     def is_calibrating(self) -> bool:
         return self.calibrating
@@ -115,6 +118,13 @@ class ImprovedMotionDetector(MotionDetector):
         resized_frame[self.mask] = [0]
 
         resized_frame = gaussian_filter(resized_frame, sigma=1, radius=self.blur_radius)
+
+        # REC-01 forensics: mean absolute difference against the previous
+        # processed frame. 0.0 means the detector is being fed a repeating
+        # picture, which the motion detector correctly scores as no motion.
+        if self.prev_frame is not None:
+            self.frame_delta = float(cv2.absdiff(resized_frame, self.prev_frame).mean())
+        self.prev_frame = resized_frame
 
         if self.save_images:
             blurred_saved = resized_frame.copy()

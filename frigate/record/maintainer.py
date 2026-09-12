@@ -53,12 +53,15 @@ class SegmentInfo:
         region_count: int,
         average_dBFS: int,
         motion_heatmap: dict[str, int] | None = None,
+        frame_count: int = 0,
     ) -> None:
         self.motion_count = motion_count
         self.active_object_count = active_object_count
         self.region_count = region_count
         self.average_dBFS = average_dBFS
         self.motion_heatmap = motion_heatmap
+        # REC-01 forensics: detection frames that fell inside this window
+        self.frame_count = frame_count
 
     def should_discard_segment(self, retain_mode: RetainModeEnum) -> bool:
         keep = False
@@ -357,10 +360,11 @@ class RecordingMaintainer(threading.Thread):
             return
 
         logger.debug(
-            "Dropping %s segment %s mode=%s motion_count=%d active_count=%d region_count=%d dBFS=%d window=%s..%s",
+            "Dropping %s segment %s mode=%s frames=%d motion_count=%d active_count=%d region_count=%d dBFS=%d window=%s..%s",
             camera,
             cache_path,
             store_mode,
+            segment_info.frame_count,
             segment_info.motion_count,
             segment_info.active_object_count,
             segment_info.region_count,
@@ -659,6 +663,7 @@ class RecordingMaintainer(threading.Thread):
             region_count,
             round(average_dBFS),
             motion_heatmap,
+            video_frame_count,
         )
 
     async def move_segment(
