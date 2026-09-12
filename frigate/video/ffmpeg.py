@@ -389,10 +389,20 @@ class CameraWatchdog(threading.Thread):
                 if can_restart:
                     self.reset_capture_thread(terminate=False)
                     last_restart_time = now
-            elif self.camera_fps.value >= (self.config.detect.fps + 10):
+            # Local patch (2026-04-28, re-applied on 0.18, upstream file moved
+            # from frigate/video.py to frigate/video/ffmpeg.py): bumped from
+            # +10 fps / 3 ticks to +30 fps / 5 ticks. The upstream threshold
+            # misclassifies buffered-frame flushes after a stream error (AAC mux
+            # frame_size, HEVC POC ref loss) as runaway fps and kills ffmpeg,
+            # which cascades. +30/5 tolerates ~5 s of bursts up to ~33 fps and
+            # still catches genuine runaway fps. Measured 90+ min of zero kills
+            # on a previously cascading workload (loop-log 2026-04-28). 0.18's
+            # new restart backoff pacing slows the cascade but does not fix the
+            # misclassification.
+            elif self.camera_fps.value >= (self.config.detect.fps + 30):
                 self.fps_overflow_count += 1
 
-                if self.fps_overflow_count == 3:
+                if self.fps_overflow_count == 5:
                     self._send_detect_status("offline", now)
                     self.fps_overflow_count = 0
                     self.camera_fps.value = 0
