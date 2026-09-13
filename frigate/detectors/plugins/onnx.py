@@ -48,10 +48,15 @@ class ONNXDetector(DetectionApi):
         path = detector_config.model.path
         logger.info(f"ONNX: loading {detector_config.model.path}")
 
+        # Local patch: force requires_fp16=True so the TRT EP compiles the
+        # engine in FP16. Upstream defaults to False which yields an FP32
+        # engine (~30 ms/call on T400). FP16 gives ~16 ms/call with no
+        # accuracy loss that matters for YOLO detection. See README §TRT.
         self.runner = get_optimized_runner(
             path,
             detector_config.device,
             model_type=detector_config.model.model_type,
+            requires_fp16=True,
         )
 
         self.onnx_model_type = detector_config.model.model_type

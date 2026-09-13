@@ -53,8 +53,10 @@ class TestHttpLatestFrame(BaseTestHttp):
             response = client.get(f"/{camera}/latest.webp")
             assert response.status_code == 200
             assert response.headers.get("X-Frigate-Offline") == "true"
-            # Verify we got an image (webp)
-            assert response.headers.get("content-type") == "image/webp"
+            # Local patch: .webp requests are served as JPEG (cv2 WebP encode
+            # measured 4-5x slower per frame and blocks the API event loop),
+            # so the mime type is image/jpeg here, not image/webp.
+            assert response.headers.get("content-type") == "image/jpeg"
 
     def test_latest_frame_no_fallback_when_live(self):
         camera = "front_door"

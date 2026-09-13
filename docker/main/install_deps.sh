@@ -52,8 +52,16 @@ if [[ "${TARGETARCH}" == "amd64" ]]; then
     tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/5.0 --strip-components 1 amd64/bin/ffmpeg amd64/bin/ffprobe
     rm -rf ffmpeg.tar.xz
     mkdir -p /usr/lib/ffmpeg/7.0
-    wget -qO ffmpeg.tar.xz "https://github.com/NickM-27/FFmpeg-Builds/releases/download/autobuild-2024-09-19-12-51/ffmpeg-n7.0.2-18-g3e6cec1286-linux64-gpl-7.0.tar.xz"
-    tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/7.0 --strip-components 1 amd64/bin/ffmpeg amd64/bin/ffprobe
+    # BtbN n7.1 has nv-codec-headers >=13 (Blackwell NVENC support); n7.0.2 from
+    # NickM-27 was built before 5060 Ti existed and produces broken IDR frames
+    # on Blackwell — visible as "encodery" motion-only output with no picture refresh.
+    # PINNED to a dated autobuild (2026-08-10): the floating "latest" ref pulled a
+    # build without av1_nvenc on 2026-07-13 and killed every AV1 exec pipeline.
+    # BtbN prunes daily releases but keeps month-end ones; 2026-05-31 (n7.1.4-7)
+    # was verified to contain av1_nvenc before pinning. If you bump this, run
+    # `ffmpeg -encoders | grep av1_nvenc` on the new binary FIRST.
+    wget -qO ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-31-13-22/ffmpeg-n7.1.4-7-gadcf20da26-linux64-gpl-7.1.tar.xz"
+    tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/7.0 --strip-components 1 ffmpeg-n7.1.4-7-gadcf20da26-linux64-gpl-7.1/bin/ffmpeg ffmpeg-n7.1.4-7-gadcf20da26-linux64-gpl-7.1/bin/ffprobe
     rm -rf ffmpeg.tar.xz
     mkdir -p /usr/lib/ffmpeg/8.0
     wget -qO ffmpeg.tar.xz "https://github.com/NickM-27/FFmpeg-Builds/releases/download/autobuild-2026-06-02-14-20/ffmpeg-n8.1.1-9-g58d4114d36-linux64-gpl-8.1.tar.xz"
@@ -68,8 +76,9 @@ if [[ "${TARGETARCH}" == "arm64" ]]; then
     tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/5.0 --strip-components 1 arm64/bin/ffmpeg arm64/bin/ffprobe
     rm -f ffmpeg.tar.xz
     mkdir -p /usr/lib/ffmpeg/7.0
-    wget -qO ffmpeg.tar.xz "https://github.com/NickM-27/FFmpeg-Builds/releases/download/autobuild-2024-09-19-12-51/ffmpeg-n7.0.2-18-g3e6cec1286-linuxarm64-gpl-7.0.tar.xz"
-    tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/7.0 --strip-components 1 arm64/bin/ffmpeg arm64/bin/ffprobe
+    # Pinned to the same dated autobuild as amd64 above (see comment there).
+    wget -qO ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-05-31-13-22/ffmpeg-n7.1.4-7-gadcf20da26-linuxarm64-gpl-7.1.tar.xz"
+    tar -xf ffmpeg.tar.xz -C /usr/lib/ffmpeg/7.0 --strip-components 1 ffmpeg-n7.1.4-7-gadcf20da26-linuxarm64-gpl-7.1/bin/ffmpeg ffmpeg-n7.1.4-7-gadcf20da26-linuxarm64-gpl-7.1/bin/ffprobe
     rm -f ffmpeg.tar.xz
     mkdir -p /usr/lib/ffmpeg/8.0
     wget -qO ffmpeg.tar.xz "https://github.com/NickM-27/FFmpeg-Builds/releases/download/autobuild-2026-06-02-14-20/ffmpeg-n8.1.1-9-g58d4114d36-linuxarm64-gpl-8.1.tar.xz"

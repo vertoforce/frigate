@@ -188,6 +188,17 @@ async def latest_frame(
     }
     quality_params = get_image_quality_params(extension.value, params.quality)
 
+    # Local patch (2026-07-17, re-applied on 0.18): serve JPEG for .webp
+    # requests. cv2's WebP encode measured 4-5x slower per frame (0.23 s vs
+    # 0.05 s at h=596) and concurrent dashboard loads serialize in the single
+    # API process, pushing each past 1 s. Browsers render by Content-Type, so
+    # the .webp URL is fine. Reassigning `extension` keeps imencode, the
+    # quality params and the response mime type consistent. 0.18 moved the
+    # quality params into get_image_quality_params().
+    if extension == Extension.webp:
+        extension = Extension.jpg
+        quality_params = get_image_quality_params(extension.value, params.quality)
+
     camera_config = request.app.frigate_config.cameras.get(camera_name)
     if camera_config is not None:
         frame = frame_processor.get_current_frame(camera_name, draw_options)
@@ -488,9 +499,12 @@ async def recording_clip(
             Recordings.end_time,
         )
         .where(
-            (Recordings.start_time.between(start_ts, end_ts))
-            | (Recordings.end_time.between(start_ts, end_ts))
-            | ((start_ts > Recordings.start_time) & (end_ts < Recordings.end_time))
+            # Overlap test rewritten from the upstream 3-way OR (start between
+            # OR end between OR spans-window) — logically identical, but the
+            # OR form defeats index seeks and scans the camera's full history
+            # (measured 173ms vs 1.2ms on a 105k-row camera). Requires the
+            # supplemental recordings(camera, end_time) index (see README).
+            (Recordings.end_time >= start_ts) & (Recordings.start_time <= end_ts)
         )
         .where(Recordings.camera == camera_name)
         .order_by(Recordings.start_time.asc())

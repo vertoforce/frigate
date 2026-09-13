@@ -30,12 +30,15 @@ from frigate.util.velocity import calculate_real_world_speed
 logger = logging.getLogger(__name__)
 
 
-# Local patch: upstream crops event thumbnails at multiplier=1.1, which is
-# essentially the raw bbox and is unreadable at 4K camera resolutions. 1.5
-# keeps ~50% more context on each side; calculate_region clamps to the frame
-# edges so larger values are safe. Candidate for an upstream PR as a
-# configurable option.
-THUMBNAIL_CROP_MULTIPLIER = 1.5
+# Local patch: widen the event thumbnail crop via env var. Upstream hardcodes
+# multiplier=1.1 (essentially the raw bbox), which is unreadable at 4K where
+# the bbox is a tiny slice of the frame. Default stays at upstream's 1.1;
+# docker-compose.yml sets FRIGATE_THUMBNAIL_CROP_MULTIPLIER=2.5 in prod.
+# calculate_region clamps to the frame edges, so large values are safe.
+# Applies to all cameras and only to new events.
+THUMBNAIL_CROP_MULTIPLIER = float(
+    os.environ.get("FRIGATE_THUMBNAIL_CROP_MULTIPLIER", "1.1")
+)
 
 
 # In most cases objects that loiter in a loitering zone should alert,
