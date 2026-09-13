@@ -20,6 +20,32 @@ from frigate.util.media import remove_empty_directories
 logger = logging.getLogger(__name__)
 
 
+def _delete_file(path: Path) -> str | None:
+    """Delete a file, returning the OS error text if the filesystem refused.
+
+    Cleanup runs in an unsupervised thread, so an OSError raised here (a
+    read-only or unmounted storage path, a stale network handle) would end
+    retention for the life of the process. Callers skip the file, keep its
+    database row so the next pass retries it, and report a summary.
+    """
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as e:
+        logger.debug(f"Could not delete {path}: {e}")
+        return str(e)
+
+    return None
+
+
+def _log_failed_deletes(kind: str, failures: list[str]) -> None:
+    """Report one summary per pass so a read-only mount can't flood the log."""
+    if failures:
+        logger.warning(
+            f"Could not delete {len(failures)} expired {kind}; "
+            f"cleanup will retry on the next pass. First error: {failures[0]}"
+        )
+
+
 class RecordingCleanup(threading.Thread):
     """Cleanup existing recordings based on retention config."""
 
@@ -30,19 +56,33 @@ class RecordingCleanup(threading.Thread):
 
     def clean_tmp_previews(self) -> None:
         """delete any previews in the cache that are more than 1 hour old."""
+        failed_deletes: list[str] = []
         for p in Path(CACHE_DIR).rglob("preview_*.mp4"):
             logger.debug(f"Checking preview {p}.")
-            if p.stat().st_mtime < (datetime.datetime.now().timestamp() - 60 * 60):
-                logger.debug("Deleting preview.")
-                clear_and_unlink(p)
+            try:
+                if p.stat().st_mtime < (datetime.datetime.now().timestamp() - 60 * 60):
+                    logger.debug("Deleting preview.")
+                    clear_and_unlink(p)
+            except OSError as e:
+                logger.debug(f"Could not delete {p}: {e}")
+                failed_deletes.append(str(e))
+
+        _log_failed_deletes("cached previews", failed_deletes)
 
     def clean_tmp_clips(self) -> None:
         """delete any clips in the cache that are more than 1 hour old."""
+        failed_deletes: list[str] = []
         for p in Path(os.path.join(CLIPS_DIR, "cache")).rglob("clip_*.mp4"):
             logger.debug(f"Checking tmp clip {p}.")
-            if p.stat().st_mtime < (datetime.datetime.now().timestamp() - 60 * 60):
-                logger.debug("Deleting tmp clip.")
-                clear_and_unlink(p)
+            try:
+                if p.stat().st_mtime < (datetime.datetime.now().timestamp() - 60 * 60):
+                    logger.debug("Deleting tmp clip.")
+                    clear_and_unlink(p)
+            except OSError as e:
+                logger.debug(f"Could not delete {p}: {e}")
+                failed_deletes.append(str(e))
+
+        _log_failed_deletes("cached clips", failed_deletes)
 
     def truncate_wal(self) -> None:
         """check if the WAL needs to be manually truncated."""
@@ -88,14 +128,22 @@ class RecordingCleanup(threading.Thread):
         )
 
         maybe_empty_dirs = set()
-        thumbs_to_delete = list(map(lambda x: x[1], expired_reviews))
-        for thumb_path in thumbs_to_delete:
-            thumb_path = Path(thumb_path)
-            thumb_path.unlink(missing_ok=True)
+        failed_deletes: list[str] = []
+        deleted_reviews_list: list[str] = []
+        for review in expired_reviews:
+            thumb_path = Path(review.thumb_path)
+            error = _delete_file(thumb_path)
+
+            if error is not None:
+                failed_deletes.append(error)
+                continue
+
             maybe_empty_dirs.add(thumb_path.parent)
+            deleted_reviews_list.append(review.id)
+
+        _log_failed_deletes("review thumbnails", failed_deletes)
 
         max_deletes = 100000
-        deleted_reviews_list = list(map(lambda x: x[0], expired_reviews))
         for i in range(0, len(deleted_reviews_list), max_deletes):
             ReviewSegment.delete().where(
                 ReviewSegment.id << deleted_reviews_list[i : i + max_deletes]
@@ -150,6 +198,7 @@ class RecordingCleanup(threading.Thread):
         # TODO: expire segments based on segment stats according to config
         review_start = 0
         deleted_recordings = set()
+        failed_deletes: list[str] = []
         kept_recordings: list[tuple[float, float]] = []
         for recording in recordings:
             keep = False
@@ -200,11 +249,18 @@ class RecordingCleanup(threading.Thread):
                 or (mode == RetainModeEnum.active_objects and recording.objects == 0)
             ):
                 recording_path = Path(recording.path)
-                recording_path.unlink(missing_ok=True)
+                error = _delete_file(recording_path)
+
+                if error is not None:
+                    failed_deletes.append(error)
+                    continue
+
                 deleted_recordings.add(recording.id)
                 maybe_empty_dirs.add(recording_path.parent)
             else:
                 kept_recordings.append((recording.start_time, recording.end_time))
+
+        _log_failed_deletes("recordings", failed_deletes)
 
         # expire recordings
         logger.debug(f"Expiring {len(deleted_recordings)} recordings")
@@ -236,6 +292,7 @@ class RecordingCleanup(threading.Thread):
         # expire previews
         recording_start = 0
         deleted_previews = set()
+        failed_deletes = []
         for preview in previews:
             keep = False
             # look for a reason to keep this preview
@@ -264,9 +321,16 @@ class RecordingCleanup(threading.Thread):
             # Delete previews without any relevant recordings
             if not keep:
                 preview_path = Path(preview.path)
-                preview_path.unlink(missing_ok=True)
+                error = _delete_file(preview_path)
+
+                if error is not None:
+                    failed_deletes.append(error)
+                    continue
+
                 deleted_previews.add(preview.id)
                 maybe_empty_dirs.add(preview_path.parent)
+
+        _log_failed_deletes("previews", failed_deletes)
 
         # expire previews
         logger.debug(f"Expiring {len(deleted_previews)} previews")
@@ -308,11 +372,19 @@ class RecordingCleanup(threading.Thread):
         maybe_empty_dirs = set()
 
         deleted_recordings = set()
+        failed_deletes: list[str] = []
         for recording in no_camera_recordings:
             recording_path = Path(recording.path)
-            recording_path.unlink(missing_ok=True)
+            error = _delete_file(recording_path)
+
+            if error is not None:
+                failed_deletes.append(error)
+                continue
+
             deleted_recordings.add(recording.id)
             maybe_empty_dirs.add(recording_path.parent)
+
+        _log_failed_deletes("recordings from deleted cameras", failed_deletes)
 
         logger.debug(f"Expiring {len(deleted_recordings)} recordings")
         # delete up to 100,000 at a time
@@ -388,5 +460,13 @@ class RecordingCleanup(threading.Thread):
             if counter == 0:
                 self.clean_tmp_clips()
                 maybe_empty_dirs = self.expire_recordings()
-                remove_empty_directories(Path(RECORD_DIR), maybe_empty_dirs)
+
+                # remove_empty_directories re-raises anything that isn't
+                # ENOTEMPTY, which on a read-only storage path would end
+                # cleanup for the life of the process
+                try:
+                    remove_empty_directories(Path(RECORD_DIR), maybe_empty_dirs)
+                except OSError as e:
+                    logger.warning(f"Could not prune empty recording directories: {e}")
+
                 self.truncate_wal()
