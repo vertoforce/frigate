@@ -41,6 +41,10 @@ class DetectionMarkBulkBody(BaseModel):
     person_only: bool = True  # skip events whose label is not person
 
 
+class DetectionMarkLookupBody(BaseModel):
+    event_ids: list[str] = Field(default_factory=list, max_length=5000)
+
+
 def _mark_dict(mark: DetectionMark) -> dict:
     return {
         "event_id": mark.event_id,
@@ -337,3 +341,21 @@ def detection_mark_candidates(
         for r in rows
     ]
     return JSONResponse(content={"items": items, "total": total, "summary": _summary()})
+
+
+@router.post(
+    "/detection_marks/lookup",
+    dependencies=[Depends(require_role(["admin"]))],
+    summary="Current verdicts for a list of events (local fork).",
+    description="""Body {"event_ids": [...]}. Returns {"verdicts": {event_id: "real" | "false"}}
+    for the marked ones; unmarked ids are absent. POST so long id lists fit.""",
+)
+def detection_mark_lookup(body: DetectionMarkLookupBody):
+    ids = list(dict.fromkeys(body.event_ids))
+    verdicts = {}
+    for i in range(0, len(ids), 500):  # stay under SQLite's variable limit
+        for m in DetectionMark.select(
+            DetectionMark.event_id, DetectionMark.verdict
+        ).where(DetectionMark.event_id.in_(ids[i : i + 500])):
+            verdicts[m.event_id] = m.verdict
+    return JSONResponse(content={"verdicts": verdicts})

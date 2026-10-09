@@ -4,7 +4,10 @@ import CalendarFilterButton from "@/components/filter/CalendarFilterButton";
 import ReviewActionGroup from "@/components/filter/ReviewActionGroup";
 import ReviewFilterGroup from "@/components/filter/ReviewFilterGroup";
 import PreviewThumbnailPlayer from "@/components/player/PreviewThumbnailPlayer";
-import DetectionMarkMenu from "@/components/menu/DetectionMarkMenu";
+import DetectionMarkMenu, {
+  combinedVerdict,
+  useMarkVerdicts,
+} from "@/components/menu/DetectionMarkMenu";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import EventReviewTimeline from "@/components/timeline/EventReviewTimeline";
 import ActivityIndicator from "@/components/indicators/activity-indicator";
@@ -599,6 +602,21 @@ function DetectionReview({
   const { t } = useTranslation(["views/events"]);
   const isAdmin = useIsAdmin();
 
+  // LOCAL FORK: one batched lookup so each tile's mark button shows its verdict
+  const markableIds = useMemo(
+    () =>
+      (currentItems ?? [])
+        .filter(
+          (r) =>
+            r.end_time != undefined &&
+            r.data.objects.includes("person") &&
+            r.data.detections.length > 0,
+        )
+        .flatMap((r) => r.data.detections),
+    [currentItems],
+  );
+  const markVerdicts = useMarkVerdicts(markableIds, isAdmin);
+
   const reviewTimelineRef = useRef<HTMLDivElement>(null);
 
   // preview
@@ -895,6 +913,10 @@ function DetectionReview({
                       value.data.detections.length > 0 && (
                         <DetectionMarkMenu
                           eventIds={value.data.detections}
+                          verdict={combinedVerdict(
+                            value.data.detections,
+                            markVerdicts,
+                          )}
                           className="absolute bottom-2 right-2 z-20"
                         />
                       )}

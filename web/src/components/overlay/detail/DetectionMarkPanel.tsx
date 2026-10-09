@@ -6,6 +6,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { refreshMarkViews } from "@/components/menu/DetectionMarkMenu";
 
 type MarkSummary = { real: number; false: number; total: number };
 type MarkResponse = { verdict: "real" | "false" | null; summary: MarkSummary };
@@ -45,6 +46,7 @@ export default function DetectionMarkPanel({
           },
           false,
         );
+        refreshMarkViews([eventId]); // tiles and menus elsewhere on the page
         if (resp.data.frame_saved === false) {
           toast.warning("Marked, but no clean snapshot frame was found", {
             position: "top-center",
