@@ -19,6 +19,7 @@ from frigate.api import (
     chat,
     classification,
     debug_replay,
+    detection_mark,
     event,
     export,
     media,
@@ -145,6 +146,7 @@ def create_fastapi_app(
     app.include_router(preview.router)
     app.include_router(notification.router)
     app.include_router(export.router)
+    app.include_router(detection_mark.router)
     app.include_router(event.router)
     app.include_router(media.router)
     app.include_router(motion_search.router)

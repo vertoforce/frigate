@@ -87,6 +87,7 @@ import TextEntryDialog from "@/components/overlay/dialog/TextEntryDialog";
 import AttributeSelectDialog from "@/components/overlay/dialog/AttributeSelectDialog";
 import { Trans, useTranslation } from "react-i18next";
 import { useIsAdmin } from "@/hooks/use-is-admin";
+import DetectionMarkPanel from "./DetectionMarkPanel";
 import { getTranslatedLabel } from "@/utils/i18n";
 import { CameraNameLabel } from "@/components/camera/FriendlyNameLabel";
 import { DialogPortal } from "@radix-ui/react-dialog";
@@ -1511,6 +1512,12 @@ function ObjectDetailsTab({
         </div>
       </div>
 
+      {isAdmin &&
+        search.data.type === "object" &&
+        search.end_time != undefined &&
+        search.has_snapshot && (
+          <DetectionMarkPanel eventId={search.id} label={search.label} />
+        )}
       {isAdmin &&
         search.data.type === "object" &&
         config?.plus?.enabled &&

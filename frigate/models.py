@@ -177,3 +177,25 @@ class Trigger(Model):
 
     class Meta:
         primary_key = CompositeKey("camera", "name")
+
+
+class DetectionMark(Model):
+    """LOCAL FORK: user verdict (real / false) on a tracked object detection.
+
+    Training data for fine-tuning our own detector. Created by migration
+    036_local_create_detection_mark_table.
+    """
+
+    event_id = CharField(null=False, primary_key=True, max_length=30)
+    camera = CharField(index=True, max_length=20)
+    label = CharField(max_length=20)
+    verdict = CharField(max_length=10)  # "real" or "false"
+    box = JSONField(null=True)  # relative [x, y, w, h] of the snapshot frame
+    region = JSONField(null=True)  # relative [x, y, w, h] detector region
+    frame_time = FloatField(null=True)  # snapshot frame time
+    frame_path = TextField(null=True)  # copy of the clean frame, kept past retention
+    retain_before = BooleanField(default=False)  # event.retain_indefinitely before mark
+    marked_at = FloatField()
+
+    class Meta:
+        table_name = "detection_mark"
