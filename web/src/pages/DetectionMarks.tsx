@@ -5,7 +5,16 @@
 // that starts on an unselected tile (or empty space) selects, one that starts on a
 // selected tile deselects, and it never clears the rest of the selection.
 // Backend: /api/detection_marks/candidates and /api/detection_marks/bulk.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 import useSWR from "swr";
 import { baseUrl } from "@/api/baseUrl";
 import { Button } from "@/components/ui/button";
@@ -34,6 +43,9 @@ type CandidatesResponse = {
 type Box = { x1: number; y1: number; x2: number; y2: number };
 
 const PAGE = 300;
+// after a mark, tiles keep their badge this long, then fade and leave the grid
+const HIDE_MS = 3000;
+const FADE_MS = 500;
 
 function dayStart(date: string): number | undefined {
   return date ? new Date(`${date}T00:00:00`).getTime() / 1000 : undefined;
@@ -58,6 +70,9 @@ export default function DetectionMarks() {
   const [toDate, setToDate] = useState("");
   const [show, setShow] = useState<"all" | "unmarked" | "marked">("all");
   const [limit, setLimit] = useState(PAGE);
+  // ids marked on this page that have left the grid ("Marked only" shows them)
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [fading, setFading] = useState<Set<string>>(new Set());
 
   const params = useMemo(
     () => ({
@@ -65,16 +80,29 @@ export default function DetectionMarks() {
       after: dayStart(fromDate),
       before: dayEnd(toDate),
       marked: show,
-      limit,
+      // "All" lists marked items last; ask for the hidden ones on top so the
+      // grid stays full after tiles leave it
+      limit: show == "all" ? limit + hidden.size : limit,
     }),
-    [cameras, fromDate, toDate, show, limit],
+    [cameras, fromDate, toDate, show, limit, hidden.size],
   );
 
   const { data, mutate, isLoading } = useSWR<CandidatesResponse>(
     ["detection_marks/candidates", params],
     { revalidateOnFocus: false, keepPreviousData: true },
   );
-  const items = useMemo(() => data?.items ?? [], [data]);
+  // timers and the undo toast outlive renders; always use the current SWR key
+  const mutateRef = useRef(mutate);
+  mutateRef.current = mutate;
+  const allItems = useMemo(() => data?.items ?? [], [data]);
+
+  const items = useMemo(
+    () =>
+      show == "marked"
+        ? allItems
+        : allItems.filter((i) => !(i.verdict && hidden.has(i.id))),
+    [allItems, hidden, show],
+  );
 
   const cameraNames = useMemo(
     () =>
@@ -213,31 +241,111 @@ export default function DetectionMarks() {
 
   // marking
   const [busy, setBusy] = useState(false);
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, []);
+
+  // keep the first visible tile in place when tiles above it leave the grid
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollAnchor = useRef<{ id: string; top: number } | null>(null);
+  const captureAnchor = useCallback((leaving: Set<string>) => {
+    const box = scrollRef.current?.getBoundingClientRect();
+    if (!box) return;
+    for (const [id, el] of tileRefs.current) {
+      if (leaving.has(id)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.bottom > box.top) {
+        if (!scrollAnchor.current || r.top < scrollAnchor.current.top)
+          scrollAnchor.current = { id, top: r.top };
+      }
+    }
+  }, []);
+  useLayoutEffect(() => {
+    const a = scrollAnchor.current;
+    scrollAnchor.current = null;
+    const el = a && tileRefs.current.get(a.id);
+    if (a && el && scrollRef.current)
+      scrollRef.current.scrollTop += el.getBoundingClientRect().top - a.top;
+  }, [items]);
+
+  const setVerdicts = useCallback(
+    (ids: Set<string>, verdict: "real" | "false" | null, summary?: MarkSummary) =>
+      mutateRef.current(
+        (cur) =>
+          cur && {
+            ...cur,
+            summary: summary ?? cur.summary,
+            items: cur.items.map((i) => (ids.has(i.id) ? { ...i, verdict } : i)),
+          },
+        false,
+      ),
+    [],
+  );
+
+  const later = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      timersRef.current.delete(t);
+      fn();
+    }, ms);
+    timersRef.current.add(t);
+    return t;
+  }, []);
+
   const mark = useCallback(
     async (verdict: MarkVerdict) => {
       const ids = items.filter((i) => selected.has(i.id)).map((i) => i.id);
       if (!ids.length) return;
       setBusy(true);
-      const r = await markEvents(ids, verdict);
+      const leave = verdict != "clear" && show != "marked";
+      const r = await markEvents(ids, verdict, { quiet: leave });
       setBusy(false);
-      if (!r || !data) return;
-      const idSet = new Set(ids);
+      if (!r) return;
       const skipped = new Set(r.skipped.concat(r.missing));
-      mutate(
-        {
-          ...data,
-          summary: r.summary,
-          items: data.items.map((i) =>
-            idSet.has(i.id) && !(verdict != "clear" && skipped.has(i.id))
-              ? { ...i, verdict: verdict == "clear" ? null : verdict }
-              : i,
-          ),
-        },
-        false,
+      const done = new Set(
+        verdict == "clear" ? ids : ids.filter((id) => !skipped.has(id)),
       );
+      setVerdicts(done, verdict == "clear" ? null : verdict, r.summary);
       setSelected(new Set());
+      if (!leave || done.size == 0) return;
+
+      const t1 = later(
+        () => setFading((p) => new Set([...p, ...done])),
+        HIDE_MS,
+      );
+      const t2 = later(() => {
+        captureAnchor(done);
+        setHidden((p) => new Set([...p, ...done]));
+        setFading((p) => new Set([...p].filter((id) => !done.has(id))));
+        mutateRef.current(); // refill the grid with the next unmarked candidates
+      }, HIDE_MS + FADE_MS);
+
+      const what = verdict == "real" ? "real person" : "not a person";
+      toast.success(`Marked ${done.size} ${what}`, {
+        position: "top-center",
+        duration: HIDE_MS + FADE_MS,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            [t1, t2].forEach((t) => {
+              clearTimeout(t);
+              timersRef.current.delete(t);
+            });
+            setFading((p) => new Set([...p].filter((id) => !done.has(id))));
+            setHidden((p) => new Set([...p].filter((id) => !done.has(id))));
+            const u = await markEvents([...done], "clear", { quiet: true });
+            if (!u) return;
+            setVerdicts(done, null, u.summary);
+            mutateRef.current();
+            toast.success(`Undone: cleared ${u.changed}`, {
+              position: "top-center",
+            });
+          },
+        },
+      });
     },
-    [items, selected, data, mutate],
+    [items, selected, show, setVerdicts, later, captureAnchor],
   );
 
   // keyboard: Ctrl+A select all, Esc clear, R real, N not a person, C clear mark
@@ -269,6 +377,8 @@ export default function DetectionMarks() {
       className="flex size-full flex-col overflow-hidden"
       data-testid="detection-marks-page"
     >
+      {/* the page had no Toaster, so mark toasts (and Undo) never showed */}
+      <Toaster position="top-center" closeButton={true} />
       {/* filters */}
       <div className="flex flex-wrap items-center gap-2 border-b border-secondary p-2 text-sm">
         <div className="font-medium">Mark detections</div>
@@ -382,7 +492,8 @@ export default function DetectionMarks() {
 
       {/* grid */}
       <div
-        className="relative flex-1 select-none overflow-y-auto p-2"
+        ref={scrollRef}
+        className="relative flex-1 select-none overflow-y-auto p-2 [overflow-anchor:none]"
         onMouseDown={onGridMouseDown}
       >
         <div
@@ -398,6 +509,7 @@ export default function DetectionMarks() {
                 data-mark-tile={item.id}
                 data-selected={isSel ? "1" : "0"}
                 data-verdict={item.verdict ?? ""}
+                data-fading={fading.has(item.id) ? "1" : "0"}
                 ref={(el) => {
                   if (el) tileRefs.current.set(item.id, el);
                   else tileRefs.current.delete(item.id);
@@ -409,6 +521,8 @@ export default function DetectionMarks() {
                 className={cn(
                   "relative aspect-square cursor-pointer overflow-hidden rounded-md bg-secondary outline outline-2 -outline-offset-2",
                   isSel ? "outline-selected" : "outline-transparent",
+                  "transition-opacity duration-500",
+                  fading.has(item.id) && "pointer-events-none opacity-0",
                 )}
               >
                 <img
@@ -452,14 +566,14 @@ export default function DetectionMarks() {
             No person detections match these filters.
           </div>
         )}
-        {data && items.length < data.total && (
+        {data && allItems.length < data.total && (
           <div className="flex justify-center p-4">
             <Button
               size="sm"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => setLimit((l) => l + PAGE)}
             >
-              Load {Math.min(PAGE, data.total - items.length)} more
+              Load {Math.min(PAGE, data.total - allItems.length)} more
             </Button>
           </div>
         )}

@@ -65,6 +65,7 @@ export function combinedVerdict(
 export async function markEvents(
   eventIds: string[],
   verdict: MarkVerdict,
+  opts?: { quiet?: boolean }, // quiet: caller shows its own success toast
 ): Promise<BulkMarkResult | undefined> {
   if (eventIds.length == 0) return undefined;
   try {
@@ -75,6 +76,7 @@ export async function markEvents(
     });
     const r: BulkMarkResult = resp.data;
     refreshMarkViews(eventIds);
+    if (opts?.quiet) return r;
     const what =
       verdict == "clear"
         ? "Cleared"
