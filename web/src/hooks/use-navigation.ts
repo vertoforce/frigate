@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { isDesktop } from "react-device-detect";
 import { FaCompactDisc, FaVideo } from "react-icons/fa";
 import { IoSearch } from "react-icons/io5";
-import { LuConstruction } from "react-icons/lu";
+import { LuConstruction, LuListChecks } from "react-icons/lu";
 import { MdCategory, MdChat, MdVideoLibrary } from "react-icons/md";
 import { TbFaceId } from "react-icons/tb";
 import useSWR from "swr";
@@ -19,6 +19,7 @@ export const ID_PLAYGROUND = 5;
 export const ID_FACE_LIBRARY = 6;
 export const ID_CLASSIFICATION = 7;
 export const ID_CHAT = 8;
+export const ID_DETECTION_MARKS = 9; // local fork
 
 export default function useNavigation(
   variant: "primary" | "secondary" = "primary",
@@ -90,6 +91,14 @@ export default function useNavigation(
           title: "menu.classification",
           url: "/classification",
           enabled: isDesktop && isAdmin,
+        },
+        {
+          id: ID_DETECTION_MARKS,
+          variant,
+          icon: LuListChecks,
+          title: "Mark detections",
+          url: "/marks",
+          enabled: isAdmin,
         },
         {
           id: ID_CHAT,

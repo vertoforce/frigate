@@ -4,6 +4,8 @@ import CalendarFilterButton from "@/components/filter/CalendarFilterButton";
 import ReviewActionGroup from "@/components/filter/ReviewActionGroup";
 import ReviewFilterGroup from "@/components/filter/ReviewFilterGroup";
 import PreviewThumbnailPlayer from "@/components/player/PreviewThumbnailPlayer";
+import DetectionMarkMenu from "@/components/menu/DetectionMarkMenu";
+import { useIsAdmin } from "@/hooks/use-is-admin";
 import EventReviewTimeline from "@/components/timeline/EventReviewTimeline";
 import ActivityIndicator from "@/components/indicators/activity-indicator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -595,6 +597,7 @@ function DetectionReview({
   pullLatestData,
 }: DetectionReviewProps) {
   const { t } = useTranslation(["views/events"]);
+  const isAdmin = useIsAdmin();
 
   const reviewTimelineRef = useRef<HTMLDivElement>(null);
 
@@ -886,6 +889,15 @@ function DetectionReview({
                         }}
                       />
                     </div>
+                    {isAdmin &&
+                      value.end_time != undefined &&
+                      value.data.objects.includes("person") &&
+                      value.data.detections.length > 0 && (
+                        <DetectionMarkMenu
+                          eventIds={value.data.detections}
+                          className="absolute bottom-2 right-2 z-20"
+                        />
+                      )}
                     <div
                       className={cn(
                         "review-item-ring pointer-events-none absolute inset-0 z-10 size-full rounded-lg outline outline-[3px] -outline-offset-[2.8px]",

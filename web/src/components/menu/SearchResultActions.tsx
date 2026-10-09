@@ -32,6 +32,7 @@ import {
 import useSWR from "swr";
 import { Trans, useTranslation } from "react-i18next";
 import BlurredIconButton from "../button/BlurredIconButton";
+import { DetectionMarkMenuItems } from "./DetectionMarkMenu";
 import { useIsAdmin } from "@/hooks/use-is-admin";
 import { useNavigate } from "react-router-dom";
 
@@ -226,6 +227,15 @@ export default function SearchResultActions({
             : t("itemMenu.debugReplay.label")}
         </MenuItem>
       )}
+      {isAdmin &&
+        searchResult.data.type == "object" &&
+        searchResult.label == "person" &&
+        searchResult.end_time != undefined && (
+          <DetectionMarkMenuItems
+            eventIds={[searchResult.id]}
+            MenuItem={MenuItem}
+          />
+        )}
       {isAdmin && (
         <MenuItem
           aria-label={t("itemMenu.deleteTrackedObject.label")}
