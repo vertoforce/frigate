@@ -8,7 +8,7 @@ import random
 import string
 import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from multiprocessing.synchronize import Event as MpEvent
 from pathlib import Path
 from typing import Any
@@ -35,6 +35,7 @@ from frigate.const import (
     MAX_SEGMENT_DURATION,
     MAX_SEGMENTS_IN_CACHE,
     RECORD_DIR,
+    RECORD_MOTION_PADDING,
 )
 from frigate.models import Recordings, ReviewSegment
 from frigate.review.types import SeverityEnum
@@ -105,6 +106,9 @@ class RecordingMaintainer(threading.Thread):
         self.audio_recordings_info: dict[str, list] = defaultdict(list)
         self.end_time_cache: dict[str, tuple[datetime.datetime, float]] = {}
         self.unexpected_cache_files_logged: bool = False
+        # frame times with motion or sound, kept separately because the frame
+        # info lists are trimmed once a segment leaves the cache
+        self.activity_times: dict[str, deque[float]] = defaultdict(deque)
 
     async def move_files(self) -> None:
         cache_files = [
@@ -331,6 +335,32 @@ class RecordingMaintainer(threading.Thread):
                 while info and info[0][0] < expire_before:
                     info.pop(0)
 
+    def _note_activity(self, camera: str, frame_time: float) -> None:
+        times = self.activity_times[camera]
+        times.append(frame_time)
+        # a segment's padding is decided within about a minute of it ending
+        # (MAX_SEGMENTS_IN_CACHE bounds the wait), so 5 minutes is plenty
+        while times and times[0] < frame_time - 300:
+            times.popleft()
+
+    def _padding_applies(self, camera: str) -> bool:
+        return self.config.cameras[camera].record.motion.days > 0
+
+    def _frames_processed_until(self, camera: str, timestamp: float) -> bool:
+        camera_info = self.object_recordings_info[camera]
+        return len(camera_info) > 0 and camera_info[-1][0] >= timestamp
+
+    def _near_activity(
+        self,
+        camera: str,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+    ) -> bool:
+        """Return True if motion or sound happened within the padding window."""
+        start = start_time.timestamp() - RECORD_MOTION_PADDING
+        end = end_time.timestamp() + RECORD_MOTION_PADDING
+        return any(start <= t <= end for t in self.activity_times[camera])
+
     def drop_segment(self, cache_path: str) -> None:
         Path(cache_path).unlink(missing_ok=True)
         self.end_time_cache.pop(cache_path, None)
@@ -519,6 +549,33 @@ class RecordingMaintainer(threading.Thread):
                     cache_path,
                     segment_stats,
                 )
+            elif self._padding_applies(camera):
+                # local: motion padding needs the frames after this segment
+                if not self._frames_processed_until(
+                    camera, end_time.timestamp() + RECORD_MOTION_PADDING
+                ):
+                    return None
+
+                if self._near_activity(camera, start_time, end_time):
+                    return await self.move_segment(
+                        camera,
+                        start_time,
+                        end_time,
+                        duration,
+                        cache_path,
+                        self.segment_stats(camera, start_time, end_time),
+                    )
+
+                self.log_discarded_segment(
+                    camera,
+                    cache_path,
+                    record_mode,
+                    segment_stats,
+                    start_time,
+                    end_time,
+                )
+                self.drop_segment(cache_path)
+                return None
             else:
                 self.log_discarded_segment(
                     camera,
@@ -537,11 +594,27 @@ class RecordingMaintainer(threading.Thread):
         # continuous/motion retention (either disabled or segment_stats said
         # discard), so waiting longer just fills the cache.
         else:
+            padding = self._padding_applies(camera)
+            hold = max(
+                record_config.event_pre_capture,
+                RECORD_MOTION_PADDING if padding else 0,
+            )
             retain_cutoff = datetime.datetime.fromtimestamp(
-                most_recently_processed_frame_time - record_config.event_pre_capture
+                most_recently_processed_frame_time - hold
             ).astimezone(datetime.UTC)
 
             if end_time < retain_cutoff:
+                # local: keep segments within the padding of motion or sound
+                if padding and self._near_activity(camera, start_time, end_time):
+                    return await self.move_segment(
+                        camera,
+                        start_time,
+                        end_time,
+                        duration,
+                        cache_path,
+                        self.segment_stats(camera, start_time, end_time),
+                    )
+
                 self.log_discarded_segment(
                     camera,
                     cache_path,
@@ -809,6 +882,9 @@ class RecordingMaintainer(threading.Thread):
                                 regions,
                             )
                         )
+
+                        if motion_boxes:
+                            self._note_activity(camera, frame_time)
                 elif topic == DetectionTypeEnum.audio.value:
                     (
                         camera,
@@ -825,6 +901,9 @@ class RecordingMaintainer(threading.Thread):
                                 audio_detections,
                             )
                         )
+
+                        if dBFS != 0:
+                            self._note_activity(camera, frame_time)
                 elif (
                     topic == DetectionTypeEnum.api.value
                     or topic == DetectionTypeEnum.lpr.value

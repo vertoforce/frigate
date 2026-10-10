@@ -94,8 +94,10 @@ class TestMaintainer(unittest.IsolatedAsyncioTestCase):
         maintainer = RecordingMaintainer(config, stop_event)
 
         now = datetime.datetime.now(datetime.UTC)
-        start_time = now - datetime.timedelta(seconds=20)
-        end_time = now - datetime.timedelta(seconds=10)
+        # local: past the motion padding hold (RECORD_MOTION_PADDING), not
+        # just event_pre_capture
+        start_time = now - datetime.timedelta(seconds=30)
+        end_time = now - datetime.timedelta(seconds=20)
         cache_path = "/tmp/cache/test_cam@20260417150000+0000.mp4"
 
         maintainer.end_time_cache = {cache_path: (end_time, 10.0)}
@@ -178,6 +180,53 @@ class TestMaintainer(unittest.IsolatedAsyncioTestCase):
 
         maintainer.drop_segment.assert_not_called()
         maintainer.move_segment.assert_awaited_once()
+
+    async def _quiet_segment_with_activity_at(self, activity_offset: float):
+        # local: motion padding. Quiet segment ending 20 s ago, one motion frame
+        # at end_time + activity_offset, processed frames well past the hold.
+        config = MagicMock(spec=FrigateConfig)
+        camera_config = MagicMock()
+        camera_config.record.enabled = True
+        camera_config.record.continuous.days = 0
+        camera_config.record.motion.days = 1
+        camera_config.record.event_pre_capture = 5
+        config.cameras = {"test_cam": camera_config}
+        maintainer = RecordingMaintainer(config, MagicMock())
+
+        now = datetime.datetime.now(datetime.UTC)
+        start_time = now - datetime.timedelta(seconds=30)
+        end_time = now - datetime.timedelta(seconds=20)
+        cache_path = "/tmp/cache/test_cam@20260417150000+0000.mp4"
+        maintainer.end_time_cache = {cache_path: (end_time, 10.0)}
+        maintainer.object_recordings_info["test_cam"] = [(now.timestamp(), [], [], [])]
+        maintainer.audio_recordings_info["test_cam"] = []
+        maintainer._note_activity("test_cam", end_time.timestamp() + activity_offset)
+        maintainer.drop_segment = MagicMock()
+        maintainer.move_segment = AsyncMock(return_value={"id": "kept"})
+        maintainer.recordings_publisher = MagicMock()
+
+        result = await maintainer.validate_and_move_segment(
+            "test_cam",
+            reviews=[],
+            recording={"start_time": start_time, "cache_path": cache_path},
+        )
+        return maintainer, result
+
+    async def test_keeps_quiet_segment_before_motion(self):
+        maintainer, result = await self._quiet_segment_with_activity_at(12)
+        self.assertEqual({"id": "kept"}, result)
+        maintainer.drop_segment.assert_not_called()
+
+    async def test_keeps_quiet_segment_after_motion(self):
+        maintainer, result = await self._quiet_segment_with_activity_at(-24)
+        self.assertEqual({"id": "kept"}, result)
+        maintainer.drop_segment.assert_not_called()
+
+    async def test_drops_quiet_segment_outside_padding(self):
+        maintainer, result = await self._quiet_segment_with_activity_at(-30)
+        self.assertIsNone(result)
+        maintainer.move_segment.assert_not_called()
+        maintainer.drop_segment.assert_called_once()
 
     async def test_expire_stale_recordings_info_drops_only_absent_cameras(self):
         config = MagicMock(spec=FrigateConfig)

@@ -12,7 +12,14 @@ from typing import Any
 from playhouse.sqlite_ext import SqliteExtDatabase
 
 from frigate.config import CameraConfig, FrigateConfig, RetainModeEnum
-from frigate.const import CACHE_DIR, CLIPS_DIR, MAX_WAL_SIZE, RECORD_DIR
+from frigate.const import (
+    CACHE_DIR,
+    CLIPS_DIR,
+    MAX_SEGMENT_DURATION,
+    MAX_WAL_SIZE,
+    RECORD_DIR,
+    RECORD_MOTION_PADDING,
+)
 from frigate.models import Previews, Recordings, ReviewSegment, UserReviewStatus
 from frigate.util.builtin import clear_and_unlink
 from frigate.util.media import remove_empty_directories
@@ -155,6 +162,23 @@ class RecordingCleanup(threading.Thread):
 
         return maybe_empty_dirs
 
+    def _near_activity(self, camera: str, recording: Any) -> bool:
+        """Return True if a recording with motion or sound is within the padding."""
+        start = recording.start_time - RECORD_MOTION_PADDING
+        end = recording.end_time + RECORD_MOTION_PADDING
+        return (
+            Recordings.select(Recordings.id)
+            .where(
+                (Recordings.camera == camera)
+                # lower bound keeps the start_time index range short
+                & (Recordings.start_time >= start - MAX_SEGMENT_DURATION)
+                & (Recordings.start_time <= end)
+                & (Recordings.end_time >= start)
+                & ((Recordings.motion > 0) | (Recordings.dBFS != 0))
+            )
+            .exists()
+        )
+
     def expire_existing_camera_recordings(
         self,
         continuous_expire_date: float,
@@ -238,7 +262,7 @@ class RecordingCleanup(threading.Thread):
                     review_start = idx
 
             # Delete recordings outside of the retention window or based on the retention mode
-            if (
+            delete = (
                 not keep
                 or (
                     mode == RetainModeEnum.motion
@@ -247,7 +271,21 @@ class RecordingCleanup(threading.Thread):
                     and recording.dBFS == 0
                 )
                 or (mode == RetainModeEnum.active_objects and recording.objects == 0)
+            )
+
+            # local: motion padding segments (saved by the recording maintainer
+            # because they sit next to motion or sound) live as long as motion
+            if (
+                delete
+                and config.record.motion.days > 0
+                and recording.end_time >= motion_expire_date
+                and recording.motion == 0
+                and recording.dBFS == 0
+                and self._near_activity(config.name, recording)
             ):
+                delete = False
+
+            if delete:
                 recording_path = Path(recording.path)
                 error = _delete_file(recording_path)
 

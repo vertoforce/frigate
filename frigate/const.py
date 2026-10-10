@@ -127,6 +127,9 @@ CACHE_SEGMENT_FORMAT = "%Y%m%d%H%M%S%z"
 MAX_PRE_CAPTURE = 60
 MAX_SEGMENT_DURATION = 600
 MAX_SEGMENTS_IN_CACHE = 6
+# local: in motion retention mode, also keep segments within this many seconds
+# before and after any segment with motion or sound (pre/post roll for motion)
+RECORD_MOTION_PADDING = 15
 MAX_PLAYLIST_SECONDS = 7200  # support 2 hour segments for a single playlist to account for cameras with inconsistent segment times
 
 # Internal Comms Topics
