@@ -68,7 +68,7 @@ export default function DetectionMarks() {
   const [cameras, setCameras] = useState<string[]>([]); // empty = all
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [show, setShow] = useState<"all" | "unmarked" | "marked">("all");
+  const [show, setShow] = useState<"all" | "unmarked" | "marked">("unmarked");
   const [limit, setLimit] = useState(PAGE);
   // ids marked on this page that have left the grid ("Marked only" shows them)
   const [hidden, setHidden] = useState<Set<string>>(new Set());
