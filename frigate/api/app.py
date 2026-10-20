@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import platform
+import threading
 import traceback
 import urllib
 from datetime import datetime, timedelta
@@ -87,6 +88,11 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=[Tags.app])
+
+# /api/metrics runs in the threadpool and update_metrics()/get_metrics() share the
+# module-level collector. Overlapping scrapes (a slow one plus Prometheus' next)
+# iterated one lazy peewee query from two threads and segfaulted sqlite.
+_metrics_lock = threading.Lock()
 
 # Short timeout for the /genai/probe path. The probe is interactive — fail
 # fast on hung providers rather than holding an API worker thread.
@@ -170,14 +176,16 @@ def metrics(request: Request):
     # Retrieve the latest statistics and update the Prometheus metrics
     stats = request.app.stats_emitter.get_latest_stats()
     # query DB for count of events by camera, label
-    event_counts: list[dict[str, Any]] = (
+    # list() materialises the rows here, so no lazy query is shared across threads.
+    event_counts: list[dict[str, Any]] = list(
         Event.select(Event.camera, Event.label, fn.Count())
         .group_by(Event.camera, Event.label)
         .dicts()
     )
 
-    update_metrics(stats=stats, event_counts=event_counts)
-    content, content_type = get_metrics()
+    with _metrics_lock:
+        update_metrics(stats=stats, event_counts=event_counts)
+        content, content_type = get_metrics()
     return Response(content=content, media_type=content_type)
 
 
